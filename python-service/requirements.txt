@@ -1,0 +1,8 @@
+# Flask web framework
+flask==2.3.3
+flask-cors==4.0.0
+
+# Telegram client
+pyrogram==2.0.106
+tgcrypto==1.2.5
+

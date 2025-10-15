@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Telegram Login Terminal</title>
+    
+    <!-- XTerm.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.primary {
+            background: #28a745;
+            border-color: #28a745;
+        }
+
+        .btn.primary:hover {
+            background: #218838;
+        }
+
+        .btn.danger {
+            background: #dc3545;
+            border-color: #dc3545;
+        }
+
+        .btn.danger:hover {
+            background: #c82333;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #dc3545;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .terminal-container {
+            height: calc(100vh - 70px);
+            padding: 20px;
+            background: #1e1e1e;
+        }
+
+        .terminal-wrapper {
+            height: 100%;
+            background: #000000;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+        }
+
+        #terminal {
+            height: 100%;
+        }
+
+        .quick-commands {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            max-width: 250px;
+        }
+
+        .quick-commands h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .quick-commands .command {
+            display: block;
+            width: 100%;
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            color: white;
+            text-decoration: none;
+            font-size: 12px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .quick-commands .command:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateX(2px);
+        }
+
+        .toggle-commands {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: rgba(102, 126, 234, 0.9);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 1001;
+            transition: all 0.2s;
+        }
+
+        .toggle-commands:hover {
+            background: rgba(102, 126, 234, 1);
+            transform: scale(1.1);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 2000;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.error {
+            background: #dc3545;
+        }
+
+        .notification.warning {
+            background: #ffc107;
+            color: #000;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                padding: 10px 15px;
+            }
+            
+            .header h1 {
+                font-size: 16px;
+            }
+            
+            .terminal-container {
+                padding: 10px;
+            }
+            
+            .quick-commands {
+                right: 10px;
+                max-width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔐 Telegram Login Terminal</h1>
+        <div class="header-controls">
+            <div class="status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+            <button class="btn primary" onclick="runTelegramLogin()">
+                📱 Run Login Script
+            </button>
+            <button class="btn" onclick="clearTerminal()">
+                🗑️ Clear
+            </button>
+            <button class="btn danger" onclick="reconnect()">
+                🔄 Reconnect
+            </button>
+        </div>
+    </div>
+
+    <div class="terminal-container">
+        <div class="terminal-wrapper">
+            <div id="terminal"></div>
+        </div>
+    </div>
+
+    <!-- Quick Commands Panel -->
+    <button class="toggle-commands" onclick="toggleCommands()" id="toggleBtn">⚡</button>
+    
+    <div class="quick-commands hidden" id="quickCommands">
+        <h3>⚡ Quick Commands</h3>
+        <button class="command" onclick="sendCommand('python3 login_dasar.py')">
+            🔐 Telegram Login
+        </button>
+        <button class="command" onclick="sendCommand('ls -la')">
+            📁 List Files
+        </button>
+        <button class="command" onclick="sendCommand('pwd')">
+            📍 Current Directory
+        </button>
+        <button class="command" onclick="sendCommand('source venv/bin/activate')">
+            🐍 Activate Python Env
+        </button>
+        <button class="command" onclick="sendCommand('pip list')">
+            📦 List Python Packages
+        </button>
+        <button class="command" onclick="sendCommand('clear')">
+            🗑️ Clear Screen
+        </button>
+        <button class="command" onclick="sendCommand('exit')">
+            🚪 Exit
+        </button>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" id="notification"></div>
+
+    <!-- XTerm.js JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+
+    <script>
+        class TerminalClient {
+            constructor() {
+                this.terminal = null;
+                this.websocket = null;
+                this.fitAddon = null;
+                this.terminalId = null;
+                this.isConnected = false;
+                
+                this.init();
+            }
+
+            init() {
+                this.createTerminal();
+                this.connect();
+                this.setupEventListeners();
+            }
+
+            createTerminal() {
+                // Create terminal instance
+                this.terminal = new Terminal({
+                    cursorBlink: true,
+                    cursorStyle: 'block',
+                    fontSize: 14,
+                    fontFamily: 'Consolas, "Courier New", monospace',
+                    theme: {
+                        background: '#000000',
+                        foreground: '#ffffff',
+                        cursor: '#ffffff',
+                        selection: '#ffffff20',
+                        black: '#000000',
+                        red: '#ff5555',
+                        green: '#50fa7b',
+                        yellow: '#f1fa8c',
+                        blue: '#bd93f9',
+                        magenta: '#ff79c6',
+                        cyan: '#8be9fd',
+                        white: '#bfbfbf',
+                        brightBlack: '#4d4d4d',
+                        brightRed: '#ff6e67',
+                        brightGreen: '#5af78e',
+                        brightYellow: '#f4f99d',
+                        brightBlue: '#caa9fa',
+                        brightMagenta: '#ff92d0',
+                        brightCyan: '#9aedfe',
+                        brightWhite: '#e6e6e6'
+                    },
+                    cols: 80,
+                    rows: 24
+                });
+
+                // Add fit addon
+                this.fitAddon = new FitAddon.FitAddon();
+                this.terminal.loadAddon(this.fitAddon);
+
+                // Add web links addon
+                this.terminal.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+                // Open terminal in DOM
+                this.terminal.open(document.getElementById('terminal'));
+                
+                // Fit terminal to container
+                this.fitAddon.fit();
+
+                // Handle terminal input
+                this.terminal.onData((data) => {
+                    if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.websocket.send(JSON.stringify({
+                            type: 'input',
+                            data: data
+                        }));
+                    }
+                });
+
+                // Handle terminal resize
+                this.terminal.onResize((size) => {
+                    if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.websocket.send(JSON.stringify({
+                            type: 'resize',
+                            cols: size.cols,
+                            rows: size.rows
+                        }));
+                    }
+                });
+            }
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/terminal`;
+                
+                this.websocket = new WebSocket(wsUrl);
+
+                this.websocket.onopen = () => {
+                    console.log('🔌 WebSocket connected');
+                    this.isConnected = true;
+                    this.updateStatus('Connected', true);
+                    this.showNotification('Terminal connected successfully!', 'success');
+                };
+
+                this.websocket.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        this.handleMessage(message);
+                    } catch (error) {
+                        console.error('Error parsing WebSocket message:', error);
+                    }
+                };
+
+                this.websocket.onclose = () => {
+                    console.log('🔌 WebSocket disconnected');
+                    this.isConnected = false;
+                    this.updateStatus('Disconnected', false);
+                    this.showNotification('Terminal disconnected', 'error');
+                    
+                    // Auto-reconnect after 3 seconds
+                    setTimeout(() => {
+                        if (!this.isConnected) {
+                            this.reconnect();
+                        }
+                    }, 3000);
+                };
+
+                this.websocket.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.showNotification('Connection error occurred', 'error');
+                };
+            }
+
+            handleMessage(message) {
+                switch (message.type) {
+                    case 'terminal_id':
+                        this.terminalId = message.data;
+                        console.log('📋 Terminal ID:', this.terminalId);
+                        break;
+
+                    case 'output':
+                        this.terminal.write(message.data);
+                        break;
+
+                    case 'exit':
+                        this.terminal.write(`\r\n\x1b[31m[Process exited with code ${message.data.code}]\x1b[0m\r\n`);
+                        this.showNotification(`Process exited with code ${message.data.code}`, 'warning');
+                        break;
+
+                    default:
+                        console.log('Unknown message type:', message.type);
+                }
+            }
+
+            sendCommand(command) {
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.websocket.send(JSON.stringify({
+                        type: 'input',
+                        data: command + '\n'
+                    }));
+                    this.showNotification(`Command sent: ${command}`, 'success');
+                } else {
+                    this.showNotification('Terminal not connected', 'error');
+                }
+            }
+
+            runScript(scriptName) {
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.websocket.send(JSON.stringify({
+                        type: 'run_script',
+                        script: scriptName
+                    }));
+                    this.showNotification(`Running script: ${scriptName}`, 'success');
+                } else {
+                    this.showNotification('Terminal not connected', 'error');
+                }
+            }
+
+            clearTerminal() {
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.websocket.send(JSON.stringify({
+                        type: 'clear'
+                    }));
+                } else {
+                    this.terminal.clear();
+                }
+            }
+
+            reconnect() {
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+                this.updateStatus('Reconnecting...', false);
+                setTimeout(() => {
+                    this.connect();
+                }, 1000);
+            }
+
+            updateStatus(text, connected) {
+                const statusText = document.getElementById('statusText');
+                const statusIndicator = document.getElementById('statusIndicator');
+                
+                statusText.textContent = text;
+                
+                if (connected) {
+                    statusIndicator.classList.remove('disconnected');
+                } else {
+                    statusIndicator.classList.add('disconnected');
+                }
+            }
+
+            showNotification(message, type = 'success') {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.className = `notification ${type}`;
+                notification.classList.add('show');
+
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+
+            setupEventListeners() {
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.fitAddon.fit();
+                });
+
+                // Handle keyboard shortcuts
+                document.addEventListener('keydown', (event) => {
+                    // Ctrl+C to interrupt
+                    if (event.ctrlKey && event.key === 'c') {
+                        event.preventDefault();
+                        this.sendCommand('\x03'); // Send Ctrl+C
+                    }
+                    
+                    // Ctrl+L to clear
+                    if (event.ctrlKey && event.key === 'l') {
+                        event.preventDefault();
+                        this.clearTerminal();
+                    }
+                });
+
+                // Focus terminal when clicked
+                document.getElementById('terminal').addEventListener('click', () => {
+                    this.terminal.focus();
+                });
+
+                // Auto-focus terminal on load
+                setTimeout(() => {
+                    this.terminal.focus();
+                }, 500);
+            }
+        }
+
+        // Global functions for buttons
+        let terminalClient;
+
+        function runTelegramLogin() {
+            terminalClient.sendCommand('python3 login_dasar.py');
+        }
+
+        function clearTerminal() {
+            terminalClient.clearTerminal();
+        }
+
+        function reconnect() {
+            terminalClient.reconnect();
+        }
+
+        function sendCommand(command) {
+            terminalClient.sendCommand(command);
+        }
+
+        function toggleCommands() {
+            const quickCommands = document.getElementById('quickCommands');
+            const toggleBtn = document.getElementById('toggleBtn');
+            
+            if (quickCommands.classList.contains('hidden')) {
+                quickCommands.classList.remove('hidden');
+                toggleBtn.textContent = '✖️';
+            } else {
+                quickCommands.classList.add('hidden');
+                toggleBtn.textContent = '⚡';
+            }
+        }
+
+        // Initialize terminal when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            terminalClient = new TerminalClient();
+        });
+    </script>
+</body>
+</html>

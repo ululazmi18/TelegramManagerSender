@@ -1,0 +1,305 @@
+const express = require('express');
+const { v4: uuidv4 } = require('uuid');
+const { db } = require('../db');
+const { cleanupProjectsWithNoTargets } = require('../utils/projectCleanup');
+const logger = require('../logger');
+const router = express.Router();
+
+// POST /api/channels - add channel
+router.post('/', (req, res) => {
+  logger.info('CHANNELS POST request', {
+    operation: 'channels_post',
+    endpoint: 'POST /',
+    params: req.params,
+    bodyKeys: Object.keys(req.body || {})
+  });
+
+  const { username } = req.body;
+  const id = uuidv4();
+  
+  if (!username) {
+    return res.status(400).json({ success: false, error: 'Username is required' });
+  }
+  
+  const sql = 'INSERT INTO channels (id, username) VALUES (?, ?)';
+  db.run(sql, [id, username], function(err) {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    res.status(201).json({ success: true, data: { id, username } });
+  });
+});
+
+// POST /api/channels/bulk - add multiple channels from text (optimized)
+router.post('/bulk', (req, res) => {
+  logger.info('CHANNELS POST request', {
+    operation: 'channels_post',
+    endpoint: 'POST /bulk',
+    params: req.params,
+    bodyKeys: Object.keys(req.body || {})
+  });
+
+  const { usernames } = req.body;
+  
+  if (!usernames || !Array.isArray(usernames)) {
+    return res.status(400).json({ success: false, error: 'Usernames array is required' });
+  }
+  
+  const validUsernames = usernames
+    .map(u => u.trim())
+    .filter(u => u.length > 0)
+    .map(u => u.startsWith('@') ? u : '@' + u);
+  
+  if (validUsernames.length === 0) {
+    return res.status(400).json({ success: false, error: 'No valid usernames provided' });
+  }
+  
+  // Use batch insert for better performance
+  const results = [];
+  const errors = [];
+  
+  // Prepare batch insert
+  const placeholders = validUsernames.map(() => '(?, ?)').join(', ');
+  const sql = `INSERT INTO channels (id, username) VALUES ${placeholders}`;
+  
+  const values = [];
+  const channelData = [];
+  
+  validUsernames.forEach(username => {
+    const id = uuidv4();
+    values.push(id, username);
+    channelData.push({ id, username });
+  });
+  
+  // Execute batch insert
+  db.run(sql, values, function(err) {
+    if (err) {
+      // If batch fails, fall back to individual inserts
+      logger.info('Batch insert failed, falling back to individual inserts');
+      
+      let completed = 0;
+      validUsernames.forEach((username, index) => {
+        const id = uuidv4();
+        const singleSql = 'INSERT INTO channels (id, username) VALUES (?, ?)';
+        db.run(singleSql, [id, username], function(singleErr) {
+          if (singleErr) {
+            // Check if it's a duplicate
+            if (singleErr.message.includes('UNIQUE')) {
+              errors.push({ username, error: 'Already exists' });
+            } else {
+              errors.push({ username, error: singleErr.message });
+            }
+          } else {
+            results.push({ id, username });
+          }
+          
+          completed++;
+          if (completed === validUsernames.length) {
+            sendResponse();
+          }
+        });
+      });
+    } else {
+      // Batch insert successful
+      results.push(...channelData);
+      sendResponse();
+    }
+  });
+  
+  const sendResponse = () => {
+    if (errors.length > 0) {
+      res.status(207).json({ 
+        success: true, 
+        data: results,
+        errors: errors,
+        message: `Added ${results.length} channels, ${errors.length} failed`
+      });
+    } else {
+      res.status(201).json({ success: true, data: results });
+    }
+  };
+});
+
+// GET /api/channels - get all channels
+router.get('/', (req, res) => {
+  logger.info('CHANNELS GET request', {
+    operation: 'channels_get',
+    endpoint: 'GET /',
+    params: req.params,
+    query: req.query
+  });
+  const sql = 'SELECT id, username, chat_id, name FROM channels ORDER BY id';
+  
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      logger.error('Database operation failed', {
+        error: err.message,
+        operation: 'db_run'
+      });
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logger.debug('Operation completed successfully');
+    res.json({ success: true, data: rows });
+  });
+});
+
+// GET /api/channels/:id - get single channel
+router.get('/:id', (req, res) => {
+  logger.info('CHANNELS GET request', {
+    operation: 'channels_get',
+    endpoint: 'GET /:id',
+    params: req.params,
+    query: req.query
+  });
+  const { id } = req.params;
+  const sql = 'SELECT id, username, chat_id, name FROM channels WHERE id = ?';
+  
+  db.get(sql, [id], (err, row) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    if (!row) {
+      return res.status(404).json({ success: false, error: 'Channel not found' });
+    }
+    logger.debug('Operation completed successfully');
+    res.json({ success: true, data: row });
+  });
+});
+
+// PUT /api/channels/:id - update channel (chat_id and name)
+router.put('/:id', (req, res) => {
+  logger.info('CHANNELS PUT request', {
+    operation: 'channels_put',
+    endpoint: 'PUT /:id',
+    params: req.params,
+    bodyKeys: Object.keys(req.body || {})
+  });
+
+  const { id } = req.params;
+  const { chat_id, name, username } = req.body;
+  
+  // Build dynamic update query based on provided fields
+  const updates = [];
+  const values = [];
+  
+  if (chat_id !== undefined) {
+    updates.push('chat_id = ?');
+    values.push(chat_id);
+  }
+  if (name !== undefined) {
+    updates.push('name = ?');
+    values.push(name);
+  }
+  if (username !== undefined) {
+    updates.push('username = ?');
+    values.push(username);
+  }
+  
+  if (updates.length === 0) {
+    return res.status(400).json({ success: false, error: 'No fields to update' });
+  }
+  
+  values.push(id); // Add id for WHERE clause
+  
+  const sql = `UPDATE channels SET ${updates.join(', ')} WHERE id = ?`;
+  db.run(sql, values, function(err) {
+    if (err) {
+      logger.error('Database operation failed', {
+        error: err.message,
+        operation: 'db_run'
+      });
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ success: false, error: 'Channel not found' });
+    }
+    
+    // Fetch updated channel
+    const selectSql = 'SELECT id, username, chat_id, name FROM channels WHERE id = ?';
+    db.get(selectSql, [id], (selectErr, row) => {
+      if (selectErr) {
+        return res.status(500).json({ success: false, error: selectErr.message });
+      }
+      logger.debug('Operation completed successfully');
+    res.json({ success: true, data: row });
+    });
+  });
+});
+
+// DELETE /api/channels/:id - delete channel
+router.delete('/:id', (req, res) => {
+  logger.info('CHANNELS DELETE request', {
+    operation: 'channels_delete',
+    endpoint: 'DELETE /:id',
+    params: req.params
+  });
+  const { id } = req.params;
+  
+  // First, check if channel exists and get info
+  const checkSql = 'SELECT id, username FROM channels WHERE id = ?';
+  db.get(checkSql, [id], (err, channel) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    if (!channel) {
+      return res.status(404).json({ success: false, error: 'Channel not found' });
+    }
+    
+    // Delete from category_channels (will cascade automatically, but explicit for clarity)
+    const deleteCategoryChannelsSql = 'DELETE FROM category_channels WHERE channel_id = ?';
+    db.run(deleteCategoryChannelsSql, [id], (catErr) => {
+      if (catErr) {
+        logger.error('Error deleting category_channels:', catErr);
+      }
+      
+      // Find affected projects before deleting targets
+      const findProjectsSql = 'SELECT DISTINCT project_id FROM project_targets WHERE channel_id = ?';
+      db.all(findProjectsSql, [id], async (projErr, projectRefs) => {
+        if (projErr) {
+          logger.error('Error finding projects:', projErr);
+        }
+        
+        // Delete from project_targets (important: remove orphaned targets)
+        const deleteProjectTargetsSql = 'DELETE FROM project_targets WHERE channel_id = ?';
+        db.run(deleteProjectTargetsSql, [id], async (targetErr) => {
+          if (targetErr) {
+            logger.error('Error deleting project_targets:', targetErr);
+          }
+          
+          // Check and delete projects with no targets left
+          let deletedProjects = [];
+          if (projectRefs && projectRefs.length > 0) {
+            try {
+              const cleanup = await cleanupProjectsWithNoTargets();
+              deletedProjects = cleanup.deleted || [];
+            } catch (cleanupErr) {
+              logger.error('Error cleaning up projects:', cleanupErr);
+            }
+          }
+          
+          // Finally, delete the channel itself
+          const deleteChannelSql = 'DELETE FROM channels WHERE id = ?';
+          db.run(deleteChannelSql, [id], function(deleteErr) {
+            if (deleteErr) {
+              return res.status(500).json({ success: false, error: deleteErr.message });
+            }
+            
+            logger.debug('Operation completed successfully');
+    res.json({ success: true, 
+              message: `Channel "${channel.username}" deleted successfully`,
+              details: {
+                channel_deleted: true,
+                categories_cleaned: true,
+                projects_affected: projectRefs ? projectRefs.length : 0,
+                projects_deleted: deletedProjects.length,
+                deleted_projects: deletedProjects
+              }
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+module.exports = router;

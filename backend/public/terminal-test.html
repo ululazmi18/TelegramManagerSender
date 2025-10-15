@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Test</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+        }
+        #terminal {
+            width: 100vw;
+            height: 100vh;
+        }
+        #status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .connected { color: #0f0; }
+        .disconnected { color: #f00; }
+    </style>
+</head>
+<body>
+    <div id="status" class="disconnected">Disconnected</div>
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script>
+        console.log('Starting terminal test...');
+        
+        // Create terminal
+        const terminal = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Consolas, monospace',
+            theme: {
+                background: '#000000',
+                foreground: '#ffffff',
+                cursor: '#ffffff'
+            }
+        });
+
+        // Create fit addon
+        const fitAddon = new FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+
+        // Open terminal
+        terminal.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        // Status element
+        const status = document.getElementById('status');
+
+        // WebSocket connection
+        const wsUrl = `ws://localhost:3000/terminal`;
+        console.log('Connecting to:', wsUrl);
+        
+        const ws = new WebSocket(wsUrl);
+
+        ws.onopen = function() {
+            console.log('WebSocket connected');
+            status.textContent = 'Connected';
+            status.className = 'connected';
+            
+            terminal.writeln('✅ Terminal connected!');
+            terminal.writeln('Type "python3 login_dasar.py" to start');
+            terminal.write('$ ');
+
+            // Handle terminal input
+            terminal.onData(function(data) {
+                console.log('Sending data:', data);
+                ws.send(JSON.stringify({
+                    type: 'input',
+                    data: data
+                }));
+            });
+        };
+
+        ws.onmessage = function(event) {
+            console.log('Received:', event.data);
+            try {
+                const message = JSON.parse(event.data);
+                if (message.type === 'output') {
+                    terminal.write(message.data);
+                }
+            } catch (e) {
+                // Treat as raw data
+                terminal.write(event.data);
+            }
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket disconnected');
+            status.textContent = 'Disconnected';
+            status.className = 'disconnected';
+            terminal.writeln('\r\n❌ Connection lost');
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            status.textContent = 'Error';
+            status.className = 'disconnected';
+        };
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            fitAddon.fit();
+        });
+
+        console.log('Terminal test initialized');
+    </script>
+</body>
+</html>

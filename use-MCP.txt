@@ -1,0 +1,10 @@
+Sequential Thinking
+Playwright
+
+Filesystem              /home/ulul/telegramManagerSender/
+Redis                   redis://localhost:6379
+
+SQLite                  /home/ulul/telegramManagerSender/db/telegram_app.db
+
+Git                     /home/ulul/telegramManagerSender/
+GitHub                  GITHUB_TOKEN=ghp_jZ...
